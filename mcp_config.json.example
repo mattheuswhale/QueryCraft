@@ -1,12 +1,12 @@
 {
-  "_comment": "MCP server registry. Set enabled=true to activate a server.",
+  "_comment": "MCP server registry. Copy to mcp_config.json. Secrets come from the project .env file.",
   "servers": [
     {
       "name": "documents",
       "command": "python",
       "args": ["agents/documents_agent.py"],
       "env": {
-         "DOCUMENTS_ROOT":"~/Documents"
+        "DOCUMENTS_ROOT": "~/Documents"
       },
       "enabled": true
     },
@@ -14,12 +14,8 @@
       "name": "rss",
       "command": "python",
       "args": ["agents/rss_agent.py"],
-      "env": {
-         "FRESHRSS_URL" : "http://localhost:freshrss",
-         "FRESHRSS_USER" : "user",
-         "FRESHRSS_API_KEY" : "password"
-      },
-      "enabled": false
+      "env": {},
+      "enabled": true
     },
     {
       "name": "code",
@@ -27,7 +23,7 @@
       "args": ["agents/code_agent.py"],
       "env": {},
       "enabled": false,
-      "_comment": "Copy agent_template.py to code_agent.py and implement tools"
+      "_comment": "Copy agents/agent_template.py to agents/code_agent.py and implement tools first."
     }
   ]
 }

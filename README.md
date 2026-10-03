@@ -1,234 +1,428 @@
-# QueryCraft - AI Secretary using llms (EN / JA / KO)
+# QueryCraft — llama.cpp edition
 
-A fully local, multilingual voice assistant.  
-Speak → Whisper STT → Ollama LLM → Kokoro TTS → Speaks back.  
-Supports **English**, **Japanese**, and **Korean** with automatic language detection.
+Local multilingual voice assistant for English, Japanese, and Korean.
 
----
-
-## Architecture
-
-```
-Microphone
-    │
-    ▼
-faster-whisper          (STT: auto-detects EN / JA / KO)
-    │
-    ▼
-Ollama  ◄──────────────────────────────────────────────┐
-(gemma4:e2b)                                           │
-    │                                                  │
-    ├──► get_weather tool ──► Open-Meteo API           │
-    │    (on explicit weather questions only)          │
-    │                                                  │
-    └──► web_search tool ──► DuckDuckGo (ddgs)         │
-         (always available; model decides when to use) │
-    │                                                  │
-    ▼                                                  │
-Tool results ──────────────────────────────────────────┘
-    │
-    ▼
-Kokoro TTS              (per-language voice, streamed)
-    │
-    ▼
-sounddevice playback
+```text
+Microphone -> faster-whisper -> llama.cpp -> MCP tools -> TTS -> sounddevice
 ```
 
----
+This version uses llama.cpp's OpenAI-compatible `/v1/chat/completions` API instead of Ollama.
 
-## Prerequisites
+## Requirements
 
-### System packages
+Before running QueryCraft, install:
 
-**Linux**
-```bash
-sudo apt install portaudio19-dev ffmpeg espeak-ng
+- Python 3.11 recommended.
+- A recent llama.cpp build containing `llama-server`.
+- A Qwen3.5 GGUF model.
+- Git, if required by pip for Git-based dependencies.
+- Working microphone and audio output devices.
+
+Python 3.9-3.11 is supported by the current MeloTTS dependency set. Python 3.12 is not recommended while MeloTTS remains enabled.
+
+## Quick start
+
+### 1. Configure QueryCraft
+
+Copy the example files:
+
+Windows:
+
+```bat
+copy .env.example .env
+copy mcp_config.json.example mcp_config.json
 ```
 
-**macOS**
-```bash
-brew install portaudio ffmpeg espeak-ng
-```
-
-**Windows**
-- [PortAudio](http://www.portaudio.com/download.html)
-- [FFmpeg](https://ffmpeg.org/download.html)
-- [eSpeak-NG](https://github.com/espeak-ng/espeak-ng/releases) : download and run the `.msi` installer
-
-### Ollama
-
-Install Ollama from [ollama.com](https://ollama.com) and pull a model:
-
-```bash
-ollama pull gemma4:e2b # or any other llm of your choice
-ollama serve          # start the server (may already run as a service)
-```
-
-Any model that supports function/tool calling works. Better multilingual models:
-
-```bash
-ollama pull qwen3.5:4b    # stronger JA/KO
-ollama pull gemma4:e2b     # good balance
-```
-
----
-
-## Installation
-
-### 1. Clone and create a virtual environment
-
-```bash
-git clone git@github.com:mattheuswhale/ai-secretary.git
-cd voice-assistant
-
-python -m venv .venv
-
-# Linux / macOS
-source .venv/bin/activate
-
-# Windows (PowerShell)
-.venv\Scripts\Activate.ps1
-```
-
-### 2. Install Python dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 3. Japanese support
-
-Japanese G2P (grapheme-to-phoneme) requires `fugashi` and the UniDic dictionary.  
-`fugashi[unidic]` installs the package but the dictionary data must be downloaded separately:
-
-```bash
-pip install 'fugashi[unidic]'
-python -m unidic download
-```
-
-> **Note:** The full UniDic 3.1.0 is ~770 MB on disk. If you prefer a smaller footprint and don't need the latest dictionary data, use `unidic-lite` (~250 MB) instead, no download step required:
-> ```bash
-> pip install 'fugashi[unidic-lite]'
-> ```
-
-### 4. Configure your environment
-
-Copy the example file and edit it:
+Linux/macOS:
 
 ```bash
 cp .env.example .env
+cp mcp_config.json.example mcp_config.json
 ```
 
-Open `.env` and adjust any values you want to change. At minimum, set:
+Edit `.env` as needed.
 
-- `OLLAMA_MODEL` = the model you pulled
-- `DEFAULT_CITY` = your city for default weather lookups
-- `DEFAULT_LAT` / `DEFAULT_LON` = your coordinates
+Default llama.cpp connection:
 
-The assistant runs fine with all defaults if you just want to try it quickly.
+```env
+LLAMA_CPP_URL=http://127.0.0.1:8080/v1/chat/completions
+LLAMA_CPP_MODEL=querycraft
+```
 
----
+The `querycraft` model name must match `--alias querycraft` when starting `llama-server`.
 
-## Usage
+### 2. Start llama-server
+
+Run llama.cpp in a separate terminal before starting QueryCraft.
+
+Example using a local GGUF:
+
+Windows:
+
+```bat
+llama-server.exe ^
+  -m C:\path\to\Qwen3.5-4B-Q4_K_M.gguf ^
+  --alias querycraft ^
+  --host 127.0.0.1 ^
+  --port 8080 ^
+  --jinja ^
+  --reasoning off ^
+  --no-webui ^
+  --parallel 1 ^
+  -c 8192 ^
+  -ngl auto ^
+  -fa auto
+```
+
+Linux/macOS:
 
 ```bash
-# Normal run
-python assistant.py
+llama-server \
+  -m /path/to/Qwen3.5-4B-Q4_K_M.gguf \
+  --alias querycraft \
+  --host 127.0.0.1 \
+  --port 8080 \
+  --jinja \
+  --reasoning off \
+  --no-webui \
+  --parallel 1 \
+  -c 8192 \
+  -ngl auto \
+  -fa auto
+```
 
-# Disable TTS output (text-only, useful for testing)
+Use a recent llama.cpp build. Tool calling requires Jinja chat-template support.
+
+`llama-server` should remain running while QueryCraft is active.
+
+### 3. Run QueryCraft
+
+The launcher scripts handle Python setup automatically.
+
+Windows:
+
+```bat
+run.bat
+```
+
+Linux/macOS:
+
+```bash
+chmod +x run.sh
+./run.sh
+```
+
+On first run, the launcher:
+
+1. Creates `.venv`.
+2. Prefers Python 3.11.
+3. Upgrades `pip`, `setuptools`, and `wheel`.
+4. Installs `requirements.txt`.
+5. Installs `requirements_mcp.txt`.
+6. Installs `requirements_korean.txt`.
+7. Downloads the UniDic dictionary.
+8. Creates `.venv/.querycraft_setup_complete`.
+9. Starts `assistant.py`.
+
+Later runs skip dependency installation and start the assistant directly.
+
+If first-run setup fails, fix the reported error and run the launcher again. The setup marker is created only after every setup step succeeds.
+
+## Reset the Python environment
+
+Delete `.venv` to force a complete reinstall.
+
+Windows PowerShell:
+
+```powershell
+Remove-Item -Recurse -Force .venv
+.\run.bat
+```
+
+Windows Command Prompt:
+
+```bat
+rmdir /s /q .venv
+run.bat
+```
+
+Linux/macOS:
+
+```bash
+rm -rf .venv
+./run.sh
+```
+
+To reinstall dependencies without deleting the environment, remove only the setup marker:
+
+Windows PowerShell:
+
+```powershell
+Remove-Item .venv\.querycraft_setup_complete
+.\run.bat
+```
+
+Linux/macOS:
+
+```bash
+rm .venv/.querycraft_setup_complete
+./run.sh
+```
+
+## Manual run
+
+The launchers are recommended, but an existing environment can run QueryCraft directly:
+
+Windows:
+
+```bat
+.venv\Scripts\python.exe assistant.py
+```
+
+Linux/macOS:
+
+```bash
+.venv/bin/python assistant.py
+```
+
+Text-only testing:
+
+```bash
 python assistant.py --no-tts
-
-# Override Ollama model from CLI
-python assistant.py --model qwen3.5:4b
-
-# Use a larger Whisper model for noisier environments
-python assistant.py --whisper small
-python assistant.py --whisper medium
 ```
 
----
+Override the llama.cpp model alias:
 
-## Configuration reference
-
-All settings live in `.env`. The file is never to be committed (see `.gitignore`).
-
-| Variable | Default | Description |
-|---|---|---|
-| `OLLAMA_URL` | `http://localhost:11434/api/chat` | Ollama API endpoint |
-| `OLLAMA_MODEL` | `gemma4:e2b` | Model name as shown in `ollama list` |
-| `WHISPER_MODEL` | `base` | `tiny` / `base` / `small` / `medium` / `large-v3` |
-| `WHISPER_DEVICE` | `cpu` | `cpu` or `cuda` |
-| `WHISPER_COMPUTE` | `int8` | `int8` / `float16` / `float32` |
-| `SILENCE_THRESHOLD` | `0.015` | RMS floor before calibration (rarely needs changing) |
-| `SILENCE_SECONDS` | `1.5` | Seconds of silence to end a recording |
-| `MAX_RECORD_SECS` | `30` | Hard recording cutoff |
-| `VAD_CALIBRATION_SECS` | `1.0` | How long to sample ambient noise at startup |
-| `VAD_SPEECH_MULTIPLIER` | `3.0` | Trigger threshold = ambient × this. Raise if ambient noise triggers recording. |
-| `VAD_MIN_SPEECH_SECS` | `0.4` | Minimum continuous speech before committing. Raise to ignore brief sounds. |
-| `KOKORO_VOICE_EN` | `af_heart` | English voice name |
-| `KOKORO_VOICE_JA` | `jf_alpha` | Japanese voice name |
-| `KOKORO_VOICE_KO` | `kf_nayeon` | Korean voice name |
-| `DEFAULT_LAT` | `51.4778` | Fallback latitude for weather (Greenwich) |
-| `DEFAULT_LON` | `0.0015` | Fallback longitude for weather (Greenwich) |
-| `DEFAULT_CITY` | `Greenwich` | Fallback city name for weather |
-
-To list available Kokoro voices for a language:
-```python
-from kokoro import KPipeline
-p = KPipeline(lang_code='a')   # 'a'=EN, 'j'=JA, 'k'=KO
-print(list(p.voices))
+```bash
+python assistant.py --model querycraft
 ```
 
----
+## FreshRSS
 
-## Tools
+FreshRSS is accessed through the RSS MCP server.
 
-The assistant has two built-in agents:
+Configure `.env` with either the FreshRSS base URL:
 
-**`get_weather`**: fetches current conditions and a 3-day forecast from [Open-Meteo](https://open-meteo.com/) (free, no API key). Only called when you explicitly ask about weather.
+```env
+FRESHRSS_URL=http://192.168.0.3:8380
+FRESHRSS_USER=admin
+FRESHRSS_API_PASSWORD=YOUR_SPECIAL_API_PASSWORD
+```
 
-**`web_search`**: queries DuckDuckGo via the `ddgs` library (no API key). Always available; the model calls it when a query requires current or uncertain information.
+or the exact Google Reader API endpoint:
 
----
+```env
+FRESHRSS_API_URL=http://192.168.0.3:8380/api/greader.php
+FRESHRSS_USER=admin
+FRESHRSS_API_PASSWORD=YOUR_SPECIAL_API_PASSWORD
+```
+
+`FRESHRSS_API_PASSWORD` is the separate API password configured in the FreshRSS user profile.
+
+Do not set the API URL as the password.
+
+The old `FRESHRSS_API_KEY` variable remains accepted for compatibility, but `FRESHRSS_API_PASSWORD` is preferred.
+
+Ensure RSS is enabled in `mcp_config.json`.
+
+At startup, verify that RSS tools appear:
+
+```text
+[mcp] Tools: ... check_freshrss_connection, get_unread_articles, get_articles_from_feed, ...
+```
+
+Test FreshRSS independently with:
+
+```bash
+python diagnose_freshrss.py
+```
+
+A successful check should show HTTP `200` for login and unread requests.
+
+The assistant prefers FreshRSS for requests about:
+
+- unread items;
+- RSS feeds;
+- subscribed news;
+- headlines from feeds.
+
+Explicit requests to search the web still use `web_search`.
+
+## TTS
+
+QueryCraft detects the language of the generated reply before selecting TTS.
+
+For example:
+
+```text
+[you(en)] Say something in Japanese.
+[assistant] こんにちは。何かお手伝いできますか？
+[tts] Reply language: ja
+```
+
+### English and Japanese
+
+Kokoro handles English and Japanese.
+
+### Korean
+
+The current Korean backend uses MeloTTS when configured.
+
+```env
+KOREAN_TTS_BACKEND=melo
+```
+
+`run.bat` and `run.sh` install `requirements_korean.txt` and UniDic automatically on first run.
+
+On Windows, a local Korean Windows speech voice can also be used:
+
+```env
+KOREAN_TTS_BACKEND=windows
+```
+
+If MeloTTS dependency installation fails under Python 3.12, recreate `.venv` using Python 3.11.
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LLAMA_CPP_URL` | `http://127.0.0.1:8080/v1/chat/completions` | llama.cpp chat endpoint |
+| `LLAMA_CPP_MODEL` | `querycraft` | llama.cpp model alias |
+| `LLAMA_CPP_MAX_TOKENS` | `256` | Maximum response tokens |
+| `LLAMA_CPP_TEMPERATURE` | `0.7` | Sampling temperature |
+| `LLAMA_CPP_TOP_P` | `0.8` | Nucleus sampling |
+| `LLAMA_CPP_TOP_K` | `20` | Top-k sampling |
+| `LLM_HISTORY_TURNS` | `12` | Conversation turns retained |
+| `WHISPER_BEAM_SIZE` | `1` | STT beam size |
+| `WHISPER_MODEL` | `base` | Whisper model |
+| `WHISPER_DEVICE` | `cpu` | Whisper device |
+| `WHISPER_COMPUTE` | `int8` | Whisper compute type |
+| `KOREAN_TTS_BACKEND` | `auto` | Korean TTS backend |
+| `FRESHRSS_URL` | — | FreshRSS base URL |
+| `FRESHRSS_API_URL` | — | Optional exact Google Reader API URL |
+| `FRESHRSS_USER` | — | FreshRSS username |
+| `FRESHRSS_API_PASSWORD` | — | FreshRSS special API password |
+
+## MCP agents
+
+`mcp_config.json` controls MCP subprocesses.
+
+Included agents include:
+
+- document tools;
+- FreshRSS tools;
+- web search;
+- weather;
+- other configured MCP agents.
+
+MCP uses stdio subprocesses. It does not require a separate MCP HTTP server.
+
+## llama.cpp tuning
+
+Recommended starting command options:
+
+```text
+--jinja
+--reasoning off
+--no-webui
+--parallel 1
+-c 8192
+-ngl auto
+-fa auto
+```
+
+For this voice assistant:
+
+- Keep reasoning disabled for normal conversations.
+- Keep only one inference slot unless multiple clients need the model.
+- Keep context close to actual needs.
+- Use GPU offload when available.
+- Enable Flash Attention when supported.
+- Keep output limits small.
+- Let llama-server remain resident so model weights and prompt cache survive between turns.
+
+`llama-server` is preferred over `llama-cli` because QueryCraft uses the OpenAI-compatible HTTP API and structured tool calling.
 
 ## Troubleshooting
 
-**No audio input / microphone not detected**
-```python
-import sounddevice
-print(sounddevice.query_devices())
+### QueryCraft cannot connect to the model
+
+Confirm `llama-server` is running:
+
+```text
+http://127.0.0.1:8080
 ```
-Set `sd.default.device` in the code or configure your OS default input device.
 
-**VAD triggers on ambient noise**  
-Increase `VAD_SPEECH_MULTIPLIER` (e.g. `4.0` or `5.0`) in `.env`.
+Confirm `.env` contains:
 
-**First word of sentences is clipped**  
-Decrease `VAD_MIN_SPEECH_SECS` (e.g. `0.2`).
+```env
+LLAMA_CPP_URL=http://127.0.0.1:8080/v1/chat/completions
+LLAMA_CPP_MODEL=querycraft
+```
 
-**Whisper not detecting Japanese or Korean well**  
-Switch to `WHISPER_MODEL=small` or `medium`.
+Confirm the server was started with:
 
-**Tool calls not working (model ignores web_search)**  
-Small models like `gemma4:e2b` or `llama3.2:3b` don't invoke tools too reliably. Try `qwen3.5:4b` or `gemma4:e4b` as they handle tool calling more consistently.
+```text
+--alias querycraft
+```
 
-**`fugashi` import error on Japanese speech**  
-Make sure you ran `python -m unidic download` after installing `fugashi[unidic]`.  
-If you skipped this, run it now. It downloads ~770 MB from AWS S3.
+### RSS tools are missing
 
-**Kokoro TTS produces no audio**  
-Verify `espeak-ng` is installed (`espeak-ng --version`). Kokoro uses it as a fallback for unknown phoneme sequences.
+Check startup output for:
 
----
+```text
+[mcp] Tools:
+```
 
-## Security notes
+If FreshRSS tools are missing:
 
-- `.env` is excluded from git via `.gitignore`. Never commit it.
-- Ollama runs on `localhost` only by default. Do not expose port 11434 publicly.
-- Web search results are passed to the LLM without additional sanitization. Don't run this in an untrusted network environment.
+1. Check `mcp_config.json`.
+2. Confirm the RSS server has `"enabled": true`.
+3. Check `.env`.
+4. Run `python diagnose_freshrss.py`.
 
----
+### Dependencies reinstall every run
+
+The successful first-run marker is:
+
+```text
+.venv/.querycraft_setup_complete
+```
+
+If it is never created, one of the installation or UniDic steps is failing.
+
+### Need to reinstall after editing requirements
+
+Delete:
+
+```text
+.venv/.querycraft_setup_complete
+```
+
+Then run `run.bat` or `run.sh` again.
+
+### `fugashi`, `tokenizers`, or MeloTTS fails to build
+
+Use Python 3.11.
+
+The current MeloTTS dependency tree is not a good fit for Python 3.12 on Windows.
+
+## Main changes from the Ollama version
+
+- Replaced Ollama `/api/chat` with llama.cpp `/v1/chat/completions`.
+- Uses OpenAI-compatible tool calls and `tool_call_id`.
+- Uses Qwen3.5-friendly non-reasoning configuration.
+- Uses persistent HTTP sessions.
+- Improves RSS intent routing.
+- Loads `.env` relative to the project directory.
+- Makes `.env` override MCP placeholder configuration.
+- Fixes MCP startup and shutdown handling.
+- Detects TTS language from the generated reply.
+- Supports Japanese and Korean reply routing.
+- Uses lower-latency Whisper defaults.
+- Reduces default conversation history.
+- Adds first-run launcher scripts.
 
 ## License
 
-GPLv3   
+GPL-3.0, matching the upstream QueryCraft repository.

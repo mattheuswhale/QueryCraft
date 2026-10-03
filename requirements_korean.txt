@@ -1,0 +1,4 @@
+# Optional local Korean TTS backend.
+# Install after the main requirements if you want MeloTTS instead of Windows SAPI.
+soundfile>=0.12.1
+git+https://github.com/myshell-ai/MeloTTS.git
